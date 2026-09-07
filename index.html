@@ -8,9 +8,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
 <style>
-  :root{ --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  :root{ --mono: "Courier New", Consolas, Menlo, monospace; }
   *{ box-sizing: border-box; }
-  html,body{ margin:0; height:100%; background:#000; color:#f2f2ee; font-family: var(--mono); overflow:hidden; }
+  html,body{ margin:0; height:100%; background:#000; color:#ffffff; font-family: var(--mono); overflow:hidden; }
 
   /* Raw video wall, fixed 5x3, tiles flush, no chrome */
   .wall{
@@ -35,25 +35,25 @@
   }
   #editorCode{ height:100%; }
   .CodeMirror{
-    height:100% !important; background: transparent !important; color:#f2f2ee !important;
-    font-family: var(--mono) !important; font-size:13px; line-height:1.55;
+    height:100% !important; background: rgba(0,0,0,0.4) !important; color:#ffffff !important;
+    font-family: var(--mono) !important; font-size:17px; line-height:1.65; padding: 4px 6px;
   }
   .CodeMirror-gutters{ background: transparent !important; border:none !important; }
-  .CodeMirror-linenumber{ color: rgba(242,242,238,0.28) !important; }
+  .CodeMirror-linenumber{ color: rgba(255,255,255,0.3) !important; }
   .CodeMirror-cursor{ border-left-color:#fff !important; }
-  .CodeMirror-selected{ background: rgba(255,255,255,0.16) !important; }
-  .CodeMirror pre.CodeMirror-line{ text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.7); }
-  .cm-comment{ color: rgba(242,242,238,0.45) !important; font-style:normal !important; }
-  .cm-string{ color:#cfe8c8 !important; }
-  .cm-number{ color:#f2f2ee !important; }
-  .cm-keyword, .cm-variable, .cm-def{ color:#f2f2ee !important; }
+  .CodeMirror-selected{ background: rgba(255,255,255,0.2) !important; }
+  .CodeMirror pre.CodeMirror-line{ text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
+  .cm-comment{ color: rgba(255,255,255,0.5) !important; font-style:normal !important; }
+  .cm-string{ color:#ffffff !important; }
+  .cm-number{ color:#ffffff !important; }
+  .cm-keyword, .cm-variable, .cm-def{ color:#ffffff !important; }
 
   /* Slim console pinned to the bottom edge */
   .console{
-    position:absolute; left:0; right:0; bottom:0; height:86px; z-index:15;
+    position:absolute; left:0; right:0; bottom:0; height:92px; z-index:15;
     background: rgba(0,0,0,0.55); backdrop-filter: blur(5px);
     border-top:1px solid rgba(255,255,255,0.14);
-    font-size:11.5px; color: rgba(242,242,238,0.7);
+    font-size:13px; color: rgba(255,255,255,0.8);
     padding:8px 14px; overflow-y:auto; white-space:pre-wrap;
   }
   .console .err{ color:#ff8a80; }
@@ -235,36 +235,73 @@ function fadeOut(target) {
 }
 
 /* ---------------------------------------------------------------------
-   SCROLL — auto-advance through tiles by index, on an interval
+   SCROLL — an infinite Reels-style feed: keeps fetching fresh clips for
+   a topic and spotlights a new one every interval, instead of just
+   re-cycling whatever's already on the wall.
 --------------------------------------------------------------------- */
 let scrollTimer = null;
-let scrollOrder = [];
-let scrollPos = 0;
+let scrollQuery = '';
+let scrollPageToken = null;
+let scrollQueue = [];
+let scrollFetching = false;
 
-function advanceScroll() {
-  const activeIndex = scrollOrder[scrollPos];
-  scrollOrder.forEach(i => {
+function spotlight(index) {
+  for (let i = 0; i < MAX_TILES; i++) {
     const p = players[i];
-    if (!p) return;
-    if (i === activeIndex) {
+    if (!p) continue;
+    if (i === index) {
       p.container.style.opacity = '1';
       p.ytPlayer && p.ytPlayer.playVideo && p.ytPlayer.playVideo();
     } else {
       p.container.style.opacity = '0.15';
       p.ytPlayer && p.ytPlayer.pauseVideo && p.ytPlayer.pauseVideo();
     }
-  });
-  scrollPos = (scrollPos + 1) % scrollOrder.length;
+  }
 }
 
-function scroll(interval, target) {
+async function fetchFeed(query, count) {
+  const url = 'https://www.googleapis.com/youtube/v3/search'
+    + '?part=snippet&type=video&videoDuration=short&maxResults=' + (count || 6)
+    + '&q=' + encodeURIComponent(query)
+    + (scrollPageToken ? '&pageToken=' + scrollPageToken : '')
+    + '&key=' + encodeURIComponent(currentApiKey);
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || 'search failed');
+  scrollPageToken = data.nextPageToken || null;
+  return (data.items || []).filter(it => it.id && it.id.videoId).map(it => it.id.videoId);
+}
+
+async function topUpFeed() {
+  if (scrollFetching || scrollQueue.length > 3) return;
+  scrollFetching = true;
+  try {
+    const more = await fetchFeed(scrollQuery, 6);
+    scrollQueue = scrollQueue.concat(more);
+  } catch (err) {
+    log('feed fetch failed: ' + (err.message || err), true);
+  }
+  scrollFetching = false;
+}
+
+async function advanceScroll() {
+  await topUpFeed();
+  const videoId = scrollQueue.shift();
+  if (!videoId) { log('feed ran dry for "' + scrollQuery + '"', true); return; }
+  const index = placeTile(videoId);
+  spotlight(index);
+}
+
+async function scroll(query, interval) {
+  if (!currentApiKey) { log('run apiKey("...") first', true); return; }
   clearInterval(scrollTimer);
-  scrollOrder = resolveTargets(target);
-  if (!scrollOrder.length) { log('scroll: nothing on the wall yet', true); return; }
-  scrollPos = 0;
+  scrollQuery = query;
+  scrollPageToken = null;
+  scrollQueue = [];
+  log('scroll("' + query + '", ' + interval + 's) …');
+  await topUpFeed();
   advanceScroll();
-  scrollTimer = setInterval(advanceScroll, Math.max(0.2, interval) * 1000);
-  log('scroll(' + interval + 's) over #' + scrollOrder.join(', #'));
+  scrollTimer = setInterval(advanceScroll, Math.max(0.5, interval) * 1000);
 }
 
 function stopScroll() {
