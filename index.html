@@ -290,6 +290,7 @@ function scroll(index, ms) {
   if (!channelQueries[index]) { log('#' + index + ' has no channel yet — search() into it first', true); return; }
   clearInterval(scrollTimers[index]);
   advanceChannel(index);
+  play(index);
   scrollTimers[index] = setInterval(() => advanceChannel(index), Math.max(200, ms));
   log('scroll(' + index + ', ' + ms + 'ms) on "' + channelQueries[index] + '"');
 }
