@@ -18,7 +18,7 @@
     display:grid; grid-template-columns: repeat(5,1fr); grid-template-rows: repeat(3,1fr);
     gap:0;
   }
-  .tile{ position:relative; background:#000; overflow:hidden; }
+  .tile{ position:relative; background:#000; overflow:hidden; transition: opacity 0.4s ease; }
   .tile iframe{ width:100%; height:100%; border:0; display:block; pointer-events:none; }
   .tile-index{
     position:absolute; top:3px; left:5px; font-size:10px; color:#fff;
@@ -235,6 +235,46 @@ function fadeOut(target) {
 }
 
 /* ---------------------------------------------------------------------
+   SCROLL — auto-advance through tiles by index, on an interval
+--------------------------------------------------------------------- */
+let scrollTimer = null;
+let scrollOrder = [];
+let scrollPos = 0;
+
+function advanceScroll() {
+  const activeIndex = scrollOrder[scrollPos];
+  scrollOrder.forEach(i => {
+    const p = players[i];
+    if (!p) return;
+    if (i === activeIndex) {
+      p.container.style.opacity = '1';
+      p.ytPlayer && p.ytPlayer.playVideo && p.ytPlayer.playVideo();
+    } else {
+      p.container.style.opacity = '0.15';
+      p.ytPlayer && p.ytPlayer.pauseVideo && p.ytPlayer.pauseVideo();
+    }
+  });
+  scrollPos = (scrollPos + 1) % scrollOrder.length;
+}
+
+function scroll(interval, target) {
+  clearInterval(scrollTimer);
+  scrollOrder = resolveTargets(target);
+  if (!scrollOrder.length) { log('scroll: nothing on the wall yet', true); return; }
+  scrollPos = 0;
+  advanceScroll();
+  scrollTimer = setInterval(advanceScroll, Math.max(0.2, interval) * 1000);
+  log('scroll(' + interval + 's) over #' + scrollOrder.join(', #'));
+}
+
+function stopScroll() {
+  clearInterval(scrollTimer);
+  scrollTimer = null;
+  players.forEach(p => { if (p) p.container.style.opacity = '1'; });
+  log('scroll stopped');
+}
+
+/* ---------------------------------------------------------------------
    SEARCH — the only way clips get onto the wall. Count is explicit.
 --------------------------------------------------------------------- */
 async function search(query, count) {
@@ -283,10 +323,10 @@ play(all)
 function runCode(code) {
   try {
     const fn = new Function(
-      'apiKey', 'search', 'play', 'pause', 'mute', 'unmute', 'seek', 'loopAt', 'loop', 'cue', 'phase', 'fadeOut', 'all',
+      'apiKey', 'search', 'play', 'pause', 'mute', 'unmute', 'seek', 'loopAt', 'loop', 'cue', 'phase', 'fadeOut', 'scroll', 'stopScroll', 'all',
       code
     );
-    fn(apiKey, search, play, pause, mute, unmute, seek, loopAt, loop, cue, phase, fadeOut, 'all');
+    fn(apiKey, search, play, pause, mute, unmute, seek, loopAt, loop, cue, phase, fadeOut, scroll, stopScroll, 'all');
   } catch (err) {
     log(String(err.message || err), true);
   }
