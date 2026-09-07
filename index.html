@@ -3,170 +3,95 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Loopwall — livecode a wall of shorts</title>
+<title>Loopwall</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
 <style>
-  :root{
-    --bg: #16130f;
-    --panel: #1e1a14;
-    --line: #35301f;
-    --ink: #ede6d6;
-    --ink-dim: #9a9282;
-    --amber: #f2b84b;
-    --cyan: #5fe1e0;
-    --magenta: #e85fa0;
-    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  }
-  @media (prefers-reduced-motion: reduce){ *{ transition-duration: 0.01ms !important; } }
+  :root{ --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
   *{ box-sizing: border-box; }
-  html,body{ margin:0; height:100%; background: var(--bg); color: var(--ink); font-family: var(--mono); overflow:hidden; }
-  body{ display:flex; flex-direction:column; }
+  html,body{ margin:0; height:100%; background:#000; color:#f2f2ee; font-family: var(--mono); overflow:hidden; }
 
-  header{
-    display:flex; align-items:baseline; justify-content:space-between;
-    padding: 12px 20px; border-bottom: 1px solid var(--line); flex-shrink:0; gap:12px;
-  }
-  header h1{ font-size:15px; font-weight:600; margin:0; }
-  header p{ font-size:11.5px; margin:2px 0 0; color: var(--ink-dim); }
-  .title-row{ display:flex; flex-direction:column; min-width:0; }
-  .actions{ display:flex; gap:8px; align-items:center; flex-shrink:0; position:relative; }
-
-  button{
-    font-family: var(--mono); font-size:12.5px; color: var(--ink);
-    background: var(--panel); border:1px solid var(--line); padding:7px 12px; cursor:pointer; border-radius:3px;
-  }
-  button:hover{ border-color: var(--ink-dim); }
-  button:focus-visible, input:focus-visible{ outline:2px solid var(--amber); outline-offset:1px; }
-  button.primary{ background: var(--amber); color:#1a1509; border-color: var(--amber); font-weight:600; }
-
-  .key-popover{
-    position:absolute; top: calc(100% + 8px); right:0; width:280px; background: var(--panel);
-    border:1px solid var(--line); border-radius:4px; padding:12px; z-index:30; display:none;
-  }
-  .key-popover.open{ display:block; }
-  .key-popover p{ font-size:11px; color: var(--ink-dim); margin:0 0 8px; line-height:1.5; }
-  .key-popover a{ color: var(--cyan); }
-  .key-popover input{
-    width:100%; font-family: var(--mono); font-size:12px; background: var(--bg); color: var(--ink);
-    border:1px solid var(--line); border-radius:3px; padding:7px; margin-bottom:8px;
-  }
-
-  main{ flex:1; display:flex; min-height:0; }
-
-  /* Wall: tiles flush against each other, no gaps, no rounded "card" feel */
-  .wall-wrap{ flex:1; overflow:auto; min-width:0; background: #000; }
+  /* Raw video wall, fixed 5x3, tiles flush, no chrome */
   .wall{
-    display:grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-    grid-auto-rows: minmax(160px, auto); gap:0; min-height:100%;
+    position:absolute; inset:0;
+    display:grid; grid-template-columns: repeat(5,1fr); grid-template-rows: repeat(3,1fr);
+    gap:0;
   }
-  .tile{ position:relative; background:#050505; overflow:hidden; aspect-ratio: 9/16; }
-  .tile iframe{ width:100%; height:100%; display:block; border:0; pointer-events:none; }
+  .tile{ position:relative; background:#000; overflow:hidden; }
+  .tile iframe{ width:100%; height:100%; border:0; display:block; pointer-events:none; }
   .tile-index{
     position:absolute; top:3px; left:5px; font-size:10px; color:#fff;
-    mix-blend-mode: difference; pointer-events:none; font-weight:600;
+    mix-blend-mode: difference; pointer-events:none;
   }
   .wall-empty{
-    color: var(--ink-dim); font-size:12.5px; padding:24px; grid-column: 1 / -1;
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color: rgba(242,242,238,0.4); font-size:12px; text-align:center; padding:24px;
   }
 
-  .drawer{ width:400px; flex-shrink:0; border-left:1px solid var(--line); background: var(--panel); display:flex; flex-direction:column; }
-  #editorCode{ flex:1; min-height:0; }
-  .CodeMirror{ height:100%; font-size:12.5px; }
-  .hint{ font-size:10.5px; color: var(--ink-dim); padding:8px 12px; border-top:1px solid var(--line); line-height:1.5; }
-  .log{ padding:8px 12px; font-size:11.5px; border-top:1px solid var(--line); min-height:34px; max-height:130px; overflow:auto; color: var(--ink-dim); white-space:pre-wrap; }
-  .log .err{ color:#f2735c; }
-
-  .docs-overlay{ position:fixed; inset:0; background: rgba(10,8,5,0.85); display:none; align-items:center; justify-content:center; z-index:40; }
-  .docs-overlay.open{ display:flex; }
-  .docs-box{ background: var(--panel); border:1px solid var(--line); border-radius:6px; width:min(560px, 90vw); max-height:80vh; overflow:auto; padding:20px 22px; }
-  .docs-box h2{ font-size:14px; margin:0 0 4px; }
-  .docs-box p.sub{ font-size:11.5px; color: var(--ink-dim); margin:0 0 16px; }
-  .docs-box dl{ margin:0; }
-  .docs-box dt{ font-size:12.5px; color: var(--amber); margin-top:12px; }
-  .docs-box dd{ font-size:11.5px; color: var(--ink-dim); margin:2px 0 0; line-height:1.5; }
-  .docs-box .close-row{ margin-top:18px; text-align:right; }
-
-  @media (max-width: 860px){
-    main{ flex-direction:column; }
-    .drawer{ width:100%; border-left:none; border-top:1px solid var(--line); height:48%; }
+  /* Code floats transparently over the wall — no panel, no border, no box */
+  .editor-overlay{
+    position:absolute; top:22px; left:22px; right:22px; bottom:86px; z-index:10;
   }
+  #editorCode{ height:100%; }
+  .CodeMirror{
+    height:100% !important; background: transparent !important; color:#f2f2ee !important;
+    font-family: var(--mono) !important; font-size:13px; line-height:1.55;
+  }
+  .CodeMirror-gutters{ background: transparent !important; border:none !important; }
+  .CodeMirror-linenumber{ color: rgba(242,242,238,0.28) !important; }
+  .CodeMirror-cursor{ border-left-color:#fff !important; }
+  .CodeMirror-selected{ background: rgba(255,255,255,0.16) !important; }
+  .CodeMirror pre.CodeMirror-line{ text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 0 8px rgba(0,0,0,0.7); }
+  .cm-comment{ color: rgba(242,242,238,0.45) !important; font-style:normal !important; }
+  .cm-string{ color:#cfe8c8 !important; }
+  .cm-number{ color:#f2f2ee !important; }
+  .cm-keyword, .cm-variable, .cm-def{ color:#f2f2ee !important; }
+
+  /* Slim console pinned to the bottom edge */
+  .console{
+    position:absolute; left:0; right:0; bottom:0; height:86px; z-index:15;
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(5px);
+    border-top:1px solid rgba(255,255,255,0.14);
+    font-size:11.5px; color: rgba(242,242,238,0.7);
+    padding:8px 14px; overflow-y:auto; white-space:pre-wrap;
+  }
+  .console .err{ color:#ff8a80; }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="title-row">
-    <h1>Loopwall</h1>
-    <p>Search, play, manipulate — entirely from code. No thumbnails to click.</p>
-  </div>
-  <div class="actions">
-    <button id="runAllBtn">Run all</button>
-    <button id="docsBtn">Docs (⌥⏎)</button>
-    <button id="keyBtn">API key</button>
-    <div class="key-popover" id="keyPopover">
-      <p>Search needs a free YouTube Data API v3 key from <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener">Google Cloud Console</a> (enable the API, then create an API key). Kept only in this tab's memory, never sent anywhere but Google.</p>
-      <input type="text" id="apiKeyInput" placeholder="Paste API key…" autocomplete="off">
-      <button class="primary" id="saveKeyBtn" style="width:100%">Save for this session</button>
-    </div>
-  </div>
-</header>
-
-<main>
-  <div class="wall-wrap">
-    <div class="wall" id="wall">
-      <div class="wall-empty" id="wallEmpty">Run <code>search("something")</code> in the editor — results land on the wall automatically, indexed #0, #1, #2…</div>
-    </div>
-  </div>
-
-  <div class="drawer">
-    <div id="editorCode"></div>
-    <div class="hint">Shift+Enter runs the selection, or the current line if nothing's selected. search() places clips itself — nothing to click. ⌥⏎ opens the command reference.</div>
-    <div class="log" id="codeLog">Ready.</div>
-  </div>
-</main>
-
-<div class="docs-overlay" id="docsOverlay">
-  <div class="docs-box">
-    <h2>Loopwall commands</h2>
-    <p class="sub">Run any line with Shift+Enter. Targets accept an index, "all", or an array like [0,2].</p>
-    <dl>
-      <dt>search("query", count)</dt><dd>Fetches clips and places them straight onto the wall, indexed in order. count defaults to 8.</dd>
-      <dt>play(target)</dt><dd>Plays the target(s). No argument plays everything.</dd>
-      <dt>pause(target)</dt><dd>Pauses the target(s). No argument pauses everything.</dd>
-      <dt>mute(target) / unmute(target)</dt><dd>Toggles sound per tile. New clips play unmuted by default.</dd>
-      <dt>seek(target, seconds)</dt><dd>Jumps to a timestamp.</dd>
-      <dt>loopAt(target, start, duration)</dt><dd>Loops a fixed window of the clip, from start for duration seconds.</dd>
-      <dt>loop(target, secondsAgo, duration)</dt><dd>Loops starting from secondsAgo before the clip's current position.</dd>
-      <dt>cue(target, "id")</dt><dd>Swaps in a new clip on an existing tile, same position on the wall.</dd>
-      <dt>phase(target, seconds)</dt><dd>Nudges playback position by seconds (+ forward, − back) — for pulling clips in or out of sync.</dd>
-      <dt>fadeOut(target)</dt><dd>Fades the tile to black over a second, then pauses it.</dd>
-    </dl>
-    <div class="close-row"><button class="primary" id="docsCloseBtn">Close</button></div>
-  </div>
+<div class="wall" id="wall">
+  <div class="wall-empty" id="wallEmpty">shift+enter runs a line — set an api key, search, then play</div>
 </div>
+
+<div class="editor-overlay">
+  <div id="editorCode"></div>
+</div>
+
+<div class="console" id="consoleEl">ready</div>
 
 <script>
 /* ---------------------------------------------------------------------
    STATE
 --------------------------------------------------------------------- */
-let apiKey = '';
-const players = []; // { index, videoId, ytPlayer, loopTimer, container }
+const COLS = 5, ROWS = 3, MAX_TILES = COLS * ROWS;
+let currentApiKey = '';
+const players = new Array(MAX_TILES).fill(null); // { index, videoId, ytPlayer, loopTimer, container }
+let slotPointer = 0;
 let ytApiReady = false;
 let ytReadyQueue = [];
 
 const wallEl = document.getElementById('wall');
 const wallEmptyEl = document.getElementById('wallEmpty');
-const codeLogEl = document.getElementById('codeLog');
+const consoleEl = document.getElementById('consoleEl');
 
 function log(msg, isError) {
   const line = document.createElement('div');
   if (isError) line.className = 'err';
   line.textContent = msg;
-  codeLogEl.prepend(line);
-  while (codeLogEl.childNodes.length > 14) codeLogEl.removeChild(codeLogEl.lastChild);
+  consoleEl.prepend(line);
+  while (consoleEl.childNodes.length > 20) consoleEl.removeChild(consoleEl.lastChild);
 }
 
 /* ---------------------------------------------------------------------
@@ -184,20 +109,40 @@ window.onYouTubeIframeAPIReady = function () {
 })();
 
 /* ---------------------------------------------------------------------
-   WALL / PLAYER MANAGEMENT
+   API KEY — set from a line of code
+--------------------------------------------------------------------- */
+function apiKey(key) {
+  currentApiKey = (key || '').trim();
+  log(currentApiKey ? 'api key set' : 'api key cleared');
+}
+
+/* ---------------------------------------------------------------------
+   WALL / PLAYER MANAGEMENT — fixed 5x3 ring buffer
 --------------------------------------------------------------------- */
 function resolveTargets(target) {
-  if (target === undefined || target === 'all') return players.map(p => p.index);
+  const live = players.map((p, i) => p ? i : null).filter(i => i !== null);
+  if (target === undefined || target === 'all') return live;
   if (Array.isArray(target)) return target;
   return [target];
 }
 
 function placeTile(videoId) {
+  const index = slotPointer;
+  slotPointer = (slotPointer + 1) % MAX_TILES;
+
+  const existing = players[index];
+  if (existing) {
+    clearInterval(existing.loopTimer);
+    existing.videoId = videoId;
+    if (existing.ytPlayer && existing.ytPlayer.cueVideoById) existing.ytPlayer.cueVideoById(videoId);
+    return index;
+  }
+
   wallEmptyEl.style.display = 'none';
-  const index = players.length;
 
   const container = document.createElement('div');
   container.className = 'tile';
+  container.style.order = String(index);
 
   const mount = document.createElement('div');
   mount.id = 'yt-mount-' + index;
@@ -211,7 +156,7 @@ function placeTile(videoId) {
   wallEl.appendChild(container);
 
   const entry = { index, videoId, ytPlayer: null, loopTimer: null, container };
-  players.push(entry);
+  players[index] = entry;
 
   function initPlayer() {
     entry.ytPlayer = new YT.Player(mount.id, {
@@ -220,7 +165,7 @@ function placeTile(videoId) {
       // that follow it are treated as user-initiated and can carry sound.
       playerVars: { autoplay: 0, controls: 0, modestbranding: 1, rel: 0, playsinline: 1, mute: 0 },
       events: {
-        onError: () => log('#' + index + ' failed to embed — the uploader may have disabled embedding', true)
+        onError: () => log('#' + index + ' failed to embed — embedding disabled by uploader', true)
       }
     });
   }
@@ -290,76 +235,58 @@ function fadeOut(target) {
 }
 
 /* ---------------------------------------------------------------------
-   SEARCH — the only way clips get onto the wall. No click, no create().
+   SEARCH — the only way clips get onto the wall. Count is explicit.
 --------------------------------------------------------------------- */
 async function search(query, count) {
-  count = count || 8;
-  if (!apiKey) {
-    log('Add a YouTube Data API key first (top right).', true);
-    document.getElementById('keyPopover').classList.add('open');
+  count = Math.min(count || 6, MAX_TILES);
+  if (!currentApiKey) {
+    log('run apiKey("...") first', true);
     return [];
   }
-  log('search("' + query + '") …');
+  log('search("' + query + '", ' + count + ') …');
   try {
     const url = 'https://www.googleapis.com/youtube/v3/search'
-      + '?part=snippet&type=video&videoDuration=short&maxResults=' + Math.min(count, 25)
-      + '&q=' + encodeURIComponent(query) + '&key=' + encodeURIComponent(apiKey);
+      + '?part=snippet&type=video&videoDuration=short&maxResults=' + count
+      + '&q=' + encodeURIComponent(query) + '&key=' + encodeURIComponent(currentApiKey);
     const res = await fetch(url);
     const data = await res.json();
     if (data.error) throw new Error(data.error.message || 'search failed');
     const items = (data.items || []).filter(it => it.id && it.id.videoId).slice(0, count);
     const indices = items.map(it => placeTile(it.id.videoId));
     if (indices.length) {
-      log('search("' + query + '")  →  #' + indices[0] + '..#' + indices[indices.length - 1]);
+      log('search("' + query + '")  →  #' + indices.join(', #'));
     } else {
       log('search("' + query + '")  →  no results', true);
     }
     return indices;
   } catch (err) {
-    log('Search failed: ' + (err.message || err), true);
+    log('search failed: ' + (err.message || err), true);
     return [];
   }
 }
 
 /* ---------------------------------------------------------------------
-   API KEY POPOVER
---------------------------------------------------------------------- */
-const keyBtn = document.getElementById('keyBtn');
-const keyPopover = document.getElementById('keyPopover');
-keyBtn.addEventListener('click', () => keyPopover.classList.toggle('open'));
-document.addEventListener('click', e => {
-  if (!keyPopover.contains(e.target) && e.target !== keyBtn) keyPopover.classList.remove('open');
-});
-document.getElementById('saveKeyBtn').addEventListener('click', () => {
-  apiKey = document.getElementById('apiKeyInput').value.trim();
-  keyPopover.classList.remove('open');
-  log(apiKey ? 'API key set for this session.' : 'API key cleared.');
-});
-
-/* ---------------------------------------------------------------------
-   CODE EDITOR + RUN
+   CODE EDITOR + RUN — no chrome, no buttons
 --------------------------------------------------------------------- */
 const codeMirror = CodeMirror(document.getElementById('editorCode'), {
   value:
-`// everything happens from here — nothing to click.
-search("skateboard fails")
+`// shift+enter runs the selection, or the current line if nothing's selected
+// set your key once, then search and play — count is the number of reels
 
-// once results land (watch the log below), run:
-// play(all)
-// loopAt(2, 3, 2)
-// phase(4, 0.5)
-// fadeOut([1,3])
+apiKey("PASTE_YOUR_YOUTUBE_API_KEY")
+search("skateboard fails", 6)
+play(all)
 `,
-  mode: 'javascript', theme: 'dracula', lineNumbers: true, tabSize: 2
+  mode: 'javascript', lineNumbers: true, tabSize: 2
 });
 
 function runCode(code) {
   try {
     const fn = new Function(
-      'search', 'play', 'pause', 'mute', 'unmute', 'seek', 'loopAt', 'loop', 'cue', 'phase', 'fadeOut', 'all',
+      'apiKey', 'search', 'play', 'pause', 'mute', 'unmute', 'seek', 'loopAt', 'loop', 'cue', 'phase', 'fadeOut', 'all',
       code
     );
-    fn(search, play, pause, mute, unmute, seek, loopAt, loop, cue, phase, fadeOut, 'all');
+    fn(apiKey, search, play, pause, mute, unmute, seek, loopAt, loop, cue, phase, fadeOut, 'all');
   } catch (err) {
     log(String(err.message || err), true);
   }
@@ -376,24 +303,7 @@ codeMirror.setOption('extraKeys', {
       if (line.trim()) runCode(line);
       cm.setCursor(Math.min(lineNo + 1, cm.lastLine()), 0);
     }
-  },
-  'Alt-Enter': function () { openDocs(); }
-});
-
-document.getElementById('runAllBtn').addEventListener('click', () => runCode(codeMirror.getValue()));
-
-/* ---------------------------------------------------------------------
-   DOCS OVERLAY
---------------------------------------------------------------------- */
-const docsOverlay = document.getElementById('docsOverlay');
-function openDocs() { docsOverlay.classList.add('open'); }
-function closeDocs() { docsOverlay.classList.remove('open'); }
-document.getElementById('docsBtn').addEventListener('click', openDocs);
-document.getElementById('docsCloseBtn').addEventListener('click', closeDocs);
-docsOverlay.addEventListener('click', e => { if (e.target === docsOverlay) closeDocs(); });
-document.addEventListener('keydown', e => {
-  if (e.altKey && e.key === 'Enter') { e.preventDefault(); openDocs(); }
-  if (e.key === 'Escape') closeDocs();
+  }
 });
 </script>
 </body>
