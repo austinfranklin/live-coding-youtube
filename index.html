@@ -4,13 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Loopwall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
 <style>
-  :root{ --mono: "Courier New", Consolas, Menlo, monospace; }
+  :root{ --mono: 'Space Mono', 'Courier New', Consolas, monospace; }
   *{ box-sizing: border-box; }
-  html,body{ margin:0; height:100%; background:#000; color:#ffffff; font-family: var(--mono); overflow:hidden; }
+  html,body{ margin:0; height:100%; background:#000; color:#ffffff; font-family: var(--mono); font-size:20px; overflow:hidden; }
 
   /* Raw video wall, fixed 5x3, tiles flush, no chrome */
   .wall{
@@ -31,29 +36,33 @@
 
   /* Code floats transparently over the wall — no panel, no border, no box */
   .editor-overlay{
-    position:absolute; top:22px; left:22px; right:22px; bottom:86px; z-index:10;
+    position:absolute; top:22px; left:22px; right:22px; bottom:160px; z-index:10;
   }
   #editorCode{ height:100%; }
   .CodeMirror{
     height:100% !important; background: rgba(0,0,0,0.4) !important; color:#ffffff !important;
-    font-family: var(--mono) !important; font-size:17px; line-height:1.65; padding: 4px 6px;
+    font-family: var(--mono) !important; font-size:34px; line-height:1.5; padding: 4px 6px;
   }
   .CodeMirror-gutters{ background: transparent !important; border:none !important; }
   .CodeMirror-linenumber{ color: rgba(255,255,255,0.3) !important; }
   .CodeMirror-cursor{ border-left-color:#fff !important; }
   .CodeMirror-selected{ background: rgba(255,255,255,0.2) !important; }
+  .CodeMirror-activeline-background{ background: rgba(255,255,255,0.1) !important; }
   .CodeMirror pre.CodeMirror-line{ text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
   .cm-comment{ color: rgba(255,255,255,0.5) !important; font-style:normal !important; }
-  .cm-string{ color:#ffffff !important; }
-  .cm-number{ color:#ffffff !important; }
-  .cm-keyword, .cm-variable, .cm-def{ color:#ffffff !important; }
+  .cm-string{ color:#ffd60a !important; font-weight:700 !important; }
+  .cm-number{ color:#ff3b3b !important; font-weight:700 !important; }
+  .cm-bracket{ color:#ffd60a !important; font-weight:700 !important; }
+  .cm-keyword, .cm-atom{ color:#ff3b3b !important; font-weight:700 !important; }
+  .cm-variable, .cm-def{ color:#ffffff !important; }
+  .line-ran{ background: rgba(255,214,10,0.28) !important; transition: background 0.4s ease; }
 
   /* Slim console pinned to the bottom edge */
   .console{
-    position:absolute; left:0; right:0; bottom:0; height:92px; z-index:15;
+    position:absolute; left:0; right:0; bottom:0; height:150px; z-index:15;
     background: rgba(0,0,0,0.55); backdrop-filter: blur(5px);
     border-top:1px solid rgba(255,255,255,0.14);
-    font-size:13px; color: rgba(255,255,255,0.8);
+    font-size:24px; color: rgba(255,255,255,0.8);
     padding:8px 14px; overflow-y:auto; white-space:pre-wrap;
   }
   .console .err{ color:#ff8a80; }
@@ -235,15 +244,13 @@ function fadeOut(target) {
 }
 
 /* ---------------------------------------------------------------------
-   SCROLL — an infinite Reels-style feed: keeps fetching fresh clips for
-   a topic and spotlights a new one every interval, instead of just
-   re-cycling whatever's already on the wall.
+   SCROLL — cycles through the last search's results, one spotlighted
+   tile at a time, on a plain millisecond interval. No new network
+   calls — it just replays the same "channel" you already searched.
 --------------------------------------------------------------------- */
 let scrollTimer = null;
-let scrollQuery = '';
-let scrollPageToken = null;
-let scrollQueue = [];
-let scrollFetching = false;
+let lastSearchIndices = [];
+let scrollPos = 0;
 
 function spotlight(index) {
   for (let i = 0; i < MAX_TILES; i++) {
@@ -259,49 +266,16 @@ function spotlight(index) {
   }
 }
 
-async function fetchFeed(query, count) {
-  const url = 'https://www.googleapis.com/youtube/v3/search'
-    + '?part=snippet&type=video&videoDuration=short&maxResults=' + (count || 6)
-    + '&q=' + encodeURIComponent(query)
-    + (scrollPageToken ? '&pageToken=' + scrollPageToken : '')
-    + '&key=' + encodeURIComponent(currentApiKey);
-  const res = await fetch(url);
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message || 'search failed');
-  scrollPageToken = data.nextPageToken || null;
-  return (data.items || []).filter(it => it.id && it.id.videoId).map(it => it.id.videoId);
-}
-
-async function topUpFeed() {
-  if (scrollFetching || scrollQueue.length > 3) return;
-  scrollFetching = true;
-  try {
-    const more = await fetchFeed(scrollQuery, 6);
-    scrollQueue = scrollQueue.concat(more);
-  } catch (err) {
-    log('feed fetch failed: ' + (err.message || err), true);
-  }
-  scrollFetching = false;
-}
-
-async function advanceScroll() {
-  await topUpFeed();
-  const videoId = scrollQueue.shift();
-  if (!videoId) { log('feed ran dry for "' + scrollQuery + '"', true); return; }
-  const index = placeTile(videoId);
-  spotlight(index);
-}
-
-async function scroll(query, interval) {
-  if (!currentApiKey) { log('run apiKey("...") first', true); return; }
+function scroll(ms) {
   clearInterval(scrollTimer);
-  scrollQuery = query;
-  scrollPageToken = null;
-  scrollQueue = [];
-  log('scroll("' + query + '", ' + interval + 's) …');
-  await topUpFeed();
-  advanceScroll();
-  scrollTimer = setInterval(advanceScroll, Math.max(0.5, interval) * 1000);
+  if (!lastSearchIndices.length) { log('scroll: run search(...) first', true); return; }
+  scrollPos = 0;
+  spotlight(lastSearchIndices[scrollPos]);
+  scrollTimer = setInterval(() => {
+    scrollPos = (scrollPos + 1) % lastSearchIndices.length;
+    spotlight(lastSearchIndices[scrollPos]);
+  }, Math.max(200, ms));
+  log('scroll(' + ms + 'ms) over #' + lastSearchIndices.join(', #'));
 }
 
 function stopScroll() {
@@ -331,6 +305,7 @@ async function search(query, count) {
     const items = (data.items || []).filter(it => it.id && it.id.videoId).slice(0, count);
     const indices = items.map(it => placeTile(it.id.videoId));
     if (indices.length) {
+      lastSearchIndices = indices;
       log('search("' + query + '")  →  #' + indices.join(', #'));
     } else {
       log('search("' + query + '")  →  no results', true);
@@ -349,12 +324,14 @@ const codeMirror = CodeMirror(document.getElementById('editorCode'), {
   value:
 `// shift+enter runs the selection, or the current line if nothing's selected
 // set your key once, then search and play — count is the number of reels
+// scroll(ms) replays the last search, one clip spotlighted at a time
 
 apiKey("PASTE_YOUR_YOUTUBE_API_KEY")
 search("skateboard fails", 6)
 play(all)
 `,
-  mode: 'javascript', lineNumbers: true, tabSize: 2
+  mode: 'javascript', lineNumbers: true, tabSize: 2,
+  autoCloseBrackets: true, styleActiveLine: true
 });
 
 function runCode(code) {
@@ -374,14 +351,20 @@ codeMirror.setOption('extraKeys', {
     const sel = cm.getSelection();
     if (sel && sel.trim()) {
       runCode(sel);
+      const from = cm.getCursor('from').line, to = cm.getCursor('to').line;
+      for (let l = from; l <= to; l++) flashLine(cm, l);
     } else {
       const lineNo = cm.getCursor().line;
       const line = cm.getDoc().getLine(lineNo);
-      if (line.trim()) runCode(line);
-      cm.setCursor(Math.min(lineNo + 1, cm.lastLine()), 0);
+      if (line.trim()) { runCode(line); flashLine(cm, lineNo); }
     }
   }
 });
+
+function flashLine(cm, lineNo) {
+  cm.addLineClass(lineNo, 'background', 'line-ran');
+  setTimeout(() => cm.removeLineClass(lineNo, 'background', 'line-ran'), 400);
+}
 </script>
 </body>
 </html>
